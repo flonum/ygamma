@@ -567,16 +567,42 @@ function resizeCanvas(canvas) {
   canvas.height = canvas.clientHeight;
 }
 
-/** 通过本地代理从 Yahoo Finance 获取真实 SPY/ES 现价 */
+/** 通过本地代理或公共 CORS 代理获取真实 SPY/ES 现价 */
 async function fetchRealSpotPrices() {
+  // 策略 A: 本地 Python 代理 (开发时使用)
   try {
     const resp = await fetch('/api/spot');
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const data = await resp.json();
-    if (data.spySpot && data.spySpot > 0) {
-      return { spySpot: data.spySpot, esPrice: data.esPrice || data.spySpot * 10 + 15 };
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.spySpot && data.spySpot > 0) {
+        return { spySpot: data.spySpot, esPrice: data.esPrice || data.spySpot * 10 + 15 };
+      }
     }
-    throw new Error('Invalid data');
+  } catch (e) { /* 本地代理不可用, 尝试策略 B */ }
+
+  // 策略 B: 公共 CORS 代理 → Yahoo Finance (GitHub Pages 等静态部署)
+  const CORS_PROXY = 'https://corsproxy.io/?';
+  try {
+    const yahooUrl = 'https://query2.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=1d';
+    const resp = await fetch(CORS_PROXY + encodeURIComponent(yahooUrl));
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const json = await resp.json();
+    const spySpot = json.chart.result[0].meta.regularMarketPrice;
+    if (!spySpot || spySpot <= 0) throw new Error('Invalid SPY');
+
+    // 获取 ES 价格
+    let esPrice = spySpot * 10 + 15;
+    try {
+      const esUrl = 'https://query2.finance.yahoo.com/v8/finance/chart/ES=F?interval=1d&range=1d';
+      const esResp = await fetch(CORS_PROXY + encodeURIComponent(esUrl));
+      if (esResp.ok) {
+        const esJson = await esResp.json();
+        const ep = esJson.chart.result[0].meta.regularMarketPrice;
+        if (ep > 0) esPrice = ep;
+      }
+    } catch (e) { console.warn('[数据] ES 价格获取失败, 使用近似值'); }
+
+    return { spySpot, esPrice };
   } catch (e) {
     console.warn('[数据] Yahoo Finance 获取失败, 回退 Mock:', e.message);
     return null;
