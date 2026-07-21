@@ -1,44 +1,44 @@
-# GEX-ES 量化图表分析系统
+# GEX-ES — Options Gamma Exposure & Futures Chart Mapping
 
-基于 C++17 / wxWidgets 的跨平台桌面应用，抓取 SPY 期权链数据，计算 Gamma 敞口 (GEX)，识别 Call Wall / Put Wall / Zero Gamma 关键位，并实时映射到 ES 期货价格图表上呈现。
+A cross-platform desktop application built with C++17 and wxWidgets. Fetches SPY options chain data, computes Gamma Exposure (GEX), identifies Call Wall / Put Wall / Zero Gamma key levels, and maps them in real-time onto E-mini S&P 500 (ES) futures price charts.
 
-## 功能
+## Features
 
-- **数据获取** — libcurl 从 Yahoo Finance 获取 SPY/ES 实时价格，网络失败自动回退 Mock 数据
-- **GEX 计算引擎** — Black-Scholes Gamma、Net GEX 汇总、Zero Gamma 二分定位、SPY→ES 基差映射
-- **左侧 GEX 柱状图** — 按行权价展示 Net GEX（绿柱 Call 占优 / 红柱 Put 占优），标注 Call Wall / Put Wall / Zero Gamma
-- **右侧 ES 折线图** — ES 价格走势叠加三条横向支撑阻力虚线（Put Wall 强支撑 / Call Wall 强阻力 / Zero Gamma 多空分界）
-- **控制栏** — 实时显示 SPY Spot、ES 价格、基差、关键位，支持自动刷新 (30s)
-- **浏览器演示版** — `demo.html` + `server.py` 可在浏览器中直接运行，无需编译
+- **Data Fetching** — Retrieves SPY/ES real-time prices from Yahoo Finance via libcurl; automatically falls back to mock data on network failure
+- **GEX Engine** — Black-Scholes Gamma, Net GEX aggregation, Zero Gamma binary search, SPY → ES basis conversion
+- **GEX Bar Chart (Left Panel)** — Net GEX bars by strike (green = Call dominant, red = Put dominant), with Call Wall / Put Wall / Zero Gamma markers
+- **ES Price Chart (Right Panel)** — ES price line with three horizontal support/resistance overlays (Put Wall / Call Wall / Zero Gamma)
+- **Control Bar** — Live display of SPY Spot, ES price, basis, and key levels; auto-refresh (30s)
+- **Browser Demo** — `demo.html` + `server.py` runs directly in the browser, no compilation required
 
-## 技术栈
+## Tech Stack
 
-| 组件 | 技术 |
-|------|------|
-| 语言 | C++17 |
+| Component | Technology |
+|-----------|------------|
+| Language | C++17 |
 | GUI | wxWidgets 3.2+ |
-| 网络 | libcurl |
-| JSON | nlohmann/json (单头文件) |
-| 构建 | CMake 3.16+ |
+| HTTP | libcurl |
+| JSON | nlohmann/json (single header) |
+| Build | CMake 3.16+ |
 
-## 编译
+## Build
 
-### 依赖
+### Prerequisites
 
 - **wxWidgets 3.2+** (core / base / aui)
-- **libcurl** (含开发头文件)
-- **nlohmann/json** (已内嵌 `src/json.hpp`)
+- **libcurl** (with development headers)
+- **nlohmann/json** (bundled as `src/json.hpp`)
 - **CMake 3.16+**
-- **C++17 编译器** (MSVC 2022 / GCC 11+ / Clang 14+)
+- **C++17 compiler** (MSVC 2022 / GCC 11+ / Clang 14+)
 
 ### Windows (MinGW)
 
 ```batch
-# 1. 编译 wxWidgets
+# 1. Build wxWidgets
 cd wxWidgets-3.2.7.1\build\msw
 mingw32-make -f makefile.gcc BUILD=release SHARED=0
 
-# 2. 构建项目
+# 2. Build the project
 cd ygamma
 mkdir build && cd build
 cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release ^
@@ -46,7 +46,7 @@ cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release ^
   -DwxWidgets_LIB_DIR=C:\wxWidgets-3.2.7.1\lib\gcc_lib
 mingw32-make
 
-# 3. 运行
+# 3. Run
 ygamma.exe
 ```
 
@@ -60,58 +60,58 @@ cmake -B build -S . ^
 cmake --build build --config Release
 ```
 
-### 浏览器演示版
+### Browser Demo
 
-无需编译，直接运行：
+No compilation needed:
 
 ```bash
 python server.py
-# 浏览器打开 http://localhost:8080/demo.html
+# Open http://localhost:8080/demo.html in your browser
 ```
 
-## 项目架构
+## Architecture
 
 ```
 ygamma/
-├── CMakeLists.txt              # CMake 构建配置
-├── demo.html                   # 浏览器演示版 (完整功能)
-├── server.py                   # 演示版本地服务器 + CORS 代理
+├── CMakeLists.txt              # CMake build configuration
+├── demo.html                   # Browser demo (full functionality)
+├── server.py                   # Local dev server + CORS proxy
 └── src/
-    ├── main.cpp                # wxApp 入口
-    ├── GEXEngine.h/.cpp        # 算法引擎
-    ├── OptionDataFetcher.h/.cpp # 数据获取层
-    ├── GEXBarChartPanel.h/.cpp  # 左侧 GEX 柱状图
-    ├── ESOverlayPanel.h/.cpp    # 右侧 ES 图表面板
-    ├── MainFrame.h/.cpp         # 主窗口 + 控制栏
-    └── json.hpp                 # nlohmann/json 单头文件
+    ├── main.cpp                # wxApp entry point
+    ├── GEXEngine.h/.cpp        # Calculation engine
+    ├── OptionDataFetcher.h/.cpp # Data fetching layer
+    ├── GEXBarChartPanel.h/.cpp  # GEX bar chart (left panel)
+    ├── ESOverlayPanel.h/.cpp    # ES chart + overlays (right panel)
+    ├── MainFrame.h/.cpp         # Main window + control bar
+    └── json.hpp                 # nlohmann/json single header
 ```
 
-### 三层架构
+### Three-Layer Design
 
 ```
-┌─────────────────────────────────────────────┐
-│  UI 层                                      │
-│  MainFrame → wxSplitterWindow               │
-│    ├── GEXBarChartPanel (左 40%)             │
-│    └── ESOverlayPanel  (右 60%)             │
-├─────────────────────────────────────────────┤
-│  算法引擎                                    │
-│  GEXEngine                                  │
-│    ├── CalcGamma()        BS Gamma          │
-│    ├── CalcNetGEX()       按 Strike 汇总     │
-│    ├── FindZeroGamma()    二分定位          │
-│    ├── FindCallWall/PutWall()               │
-│    └── MapSPYtoES()       SPY→ES 基差映射   │
-├─────────────────────────────────────────────┤
-│  数据层                                      │
-│  OptionDataFetcher                          │
-│    ├── FetchSpotPrices()   SPY/ES 现价      │
-│    ├── FetchOptionChain()  期权链           │
-│    └── GenerateMockChain() Mock 回退        │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────┐
+│  UI Layer                               │
+│  MainFrame → wxSplitterWindow           │
+│    ├── GEXBarChartPanel (40% left)      │
+│    └── ESOverlayPanel  (60% right)      │
+├─────────────────────────────────────────┤
+│  Engine Layer                           │
+│  GEXEngine                              │
+│    ├── CalcGamma()        BS Gamma      │
+│    ├── CalcNetGEX()       Net GEX       │
+│    ├── FindZeroGamma()    Binary search │
+│    ├── FindCallWall/PutWall()           │
+│    └── MapSPYtoES()       Basis mapping │
+├─────────────────────────────────────────┤
+│  Data Layer                             │
+│  OptionDataFetcher                      │
+│    ├── FetchSpotPrices()   Live prices  │
+│    ├── FetchOptionChain()  Options chain│
+│    └── GenerateMockChain() Mock fallback│
+└─────────────────────────────────────────┘
 ```
 
-### 数据流
+### Data Flow
 
 ```
 FetchSpotPrices() / FetchOptionChain()
@@ -119,24 +119,24 @@ FetchSpotPrices() / FetchOptionChain()
         ▼
 GEXEngine::CalcAllKeyLevels()
         │
-        ├──▶ GEXBarChartPanel::SetChartData()   左侧柱状图
-        ├──▶ ESOverlayPanel::SetChartData()      右侧折线图 + Overlay
-        └──▶ MainFrame 控制栏标签更新
+        ├──▶ GEXBarChartPanel::SetChartData()   Left bar chart
+        ├──▶ ESOverlayPanel::SetChartData()      Right chart + overlays
+        └──▶ MainFrame control bar update
 ```
 
-## 核心公式
+## Core Formulas
 
 **Black-Scholes Gamma**
 
 $$\Gamma = \frac{e^{-qT} \cdot N'(d_1)}{S \cdot \sigma \cdot \sqrt{T}}$$
 
-**GEX 计算**
+**GEX Calculation**
 
 $$\text{Call GEX} = \Gamma \times \text{CallOI} \times 100 \times S$$
 $$\text{Put GEX} = -\Gamma \times \text{PutOI} \times 100 \times S$$
 $$\text{Net GEX} = \text{Call GEX} + \text{Put GEX}$$
 
-**SPY → ES 基差映射**
+**SPY → ES Basis Mapping**
 
 $$\text{Basis} = P_{ES} - (P_{SPY} \times 10)$$
 $$\text{ES Level} = (\text{SPY Level} \times 10) + \text{Basis}$$
