@@ -25,13 +25,15 @@ jobs:
           echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
 
       - name: Install dependencies
-        run: C:\vcpkg\vcpkg.exe install wxwidgets curl nlohmann-json --triplet x64-windows
+        run: C:\vcpkg\vcpkg.exe install wxwidgets curl nlohmann-json --triplet x64-windows-static
 
       - name: Configure CMake
         run: |
           cmake -B build -S . `
             -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake `
-            -DCMAKE_BUILD_TYPE=Release
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
 
       - name: Build
         run: cmake --build build --config Release
