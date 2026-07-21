@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GEX-ES 量化图表分析系统</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   Windows 2000 Classic 风格
+   经典 Win32 灰色基调 + 3D 凸起控件 + Tahoma 字体
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --face:     #D4D0C8;
+  --white:    #FFFFFF;
+  --highlight:#FFFFFF;
+  --shadow:   #808080;
+  --dkshadow: #404040;
+  --navy:     #000080;
+  --text:     #000000;
+  --text-dim: #808080;
+  --green:    #008000;
+  --red:      #CC0000;
+  --blue:     #0000FF;
+  --font-ui:  'Tahoma', 'MS Sans Serif', 'Microsoft YaHei', sans-serif;
+  --font-mono:'Consolas', 'Courier New', monospace;
+}
+
+/* ── Win2K 3D 控件混入 ─────────────────────────── */
+._raised { border: 2px solid; border-color: var(--highlight) var(--dkshadow) var(--dkshadow) var(--highlight); }
+._sunken { border: 2px solid; border-color: var(--dkshadow) var(--highlight) var(--highlight) var(--dkshadow); }
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font-ui); font-size: 11px;
+  background: var(--face); color: var(--text);
+  display: flex; flex-direction: column;
+  height: 100vh; overflow: hidden;
+}
+
+/* ── 顶部控制栏 (深蓝标题栏风格) ──────────────── */
+#controlBar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 4px 8px;
+  background: linear-gradient(180deg, #0A0A9A 0%, #000080 3%, #100890 50%, #0000C0 100%);
+  min-height: 32px; flex-wrap: wrap;
+}
+.infoGroup { display: flex; align-items: baseline; gap: 4px; }
+.infoTitle {
+  font-size: 11px; font-weight: 400; color: #C0C0FF; white-space: nowrap;
+}
+.infoValue {
+  font-size: 11px; font-weight: 700; color: #FFFFFF;
+  font-family: var(--font-mono);
+}
+.spacer { flex: 1; }
+.btn {
+  padding: 3px 16px; border: 2px solid;
+  border-color: #FFFFFF #404040 #404040 #FFFFFF;
+  background: #D4D0C8; color: #000; font-size: 11px; cursor: pointer;
+  font-family: var(--font-ui); outline: 1px dotted #000; outline-offset: -4px;
+  min-height: 23px;
+}
+.btn:hover { background: #E0DCD4; }
+.btn:active, .btn.active {
+  border-color: #404040 #FFFFFF #FFFFFF #404040;
+  background: #C8C4BC; padding: 4px 15px 2px 17px;
+}
+
+/* ── 主内容区 (分栏) ──────────────────────────── */
+#mainContent { display: flex; flex: 1; overflow: hidden; border-top: 2px solid var(--face); }
+#leftPanel {
+  width: 40%; min-width: 320px; display: flex; flex-direction: column;
+  border-right: 2px solid var(--shadow);
+}
+#rightPanel { flex: 1; display: flex; flex-direction: column; }
+.panelTitle {
+  font-size: 11px; font-weight: 400; color: #000;
+  padding: 3px 8px;
+  background: linear-gradient(180deg, #FFFFFF 0%, #D4D0C8 50%, #C0BCB4 100%);
+  border-bottom: 1px solid var(--shadow);
+  text-align: center; font-family: var(--font-ui);
+}
+canvas { display: block; flex: 1; }
+
+/* ── 底部状态栏 (经典凹陷面板) ─────────────────── */
+#statusBar {
+  padding: 3px 8px; font-size: 11px; color: #000;
+  background: #D4D0C8; border-top: 1px solid var(--shadow);
+  font-family: var(--font-ui);
+}
+</style>
+</head>
+<body>
+
+<!-- 控制栏 -->
+<div id="controlBar">
+  <span style="font-size:13px;font-weight:700;color:#FFF;margin-right:10px;">GEX-ES</span>
+  <span id="dataSourceBadge" style="color:#FFF;font-weight:700;font-size:10px;background:#408040;padding:1px 5px;border:1px solid #206020;margin-right:8px;font-family:Tahoma,sans-serif;">MOCK</span>
+  <div class="infoGroup"><span class="infoTitle">SPY Spot:</span><span class="infoValue" id="vSpySpot">--</span></div>
+  <div class="infoGroup"><span class="infoTitle">ES 价格:</span><span class="infoValue" id="vEsPrice">--</span></div>
+  <div class="infoGroup"><span class="infoTitle">基差:</span><span class="infoValue" id="vBasis">--</span></div>
+  <div class="infoGroup"><span class="infoTitle">Call Wall:</span><span class="infoValue" style="color:#80FF80" id="vCallWall">--</span></div>
+  <div class="infoGroup"><span class="infoTitle">Put Wall:</span><span class="infoValue" style="color:#FF8080" id="vPutWall">--</span></div>
+  <div class="infoGroup"><span class="infoTitle">Zero Gamma:</span><span class="infoValue" style="color:#C0C0FF" id="vZeroGamma">--</span></div>
+  <div class="spacer"></div>
+  <button class="btn" id="btnRefresh" onclick="refreshData()">刷新数据</button>
+  <button class="btn" id="btnAutoRefresh" onclick="toggleAutoRefresh()">自动刷新</button>
+</div>
+
+<!-- 主内容 -->
+<div id="mainContent">
+  <div id="leftPanel">
+    <div class="panelTitle">SPY Net GEX (按行权价)</div>
+    <canvas id="gexCanvas"></canvas>
+  </div>
+  <div id="rightPanel">
+    <div class="panelTitle">E-mini S&P 500 (ES) 期货</div>
+    <canvas id="esCanvas"></canvas>
+  </div>
+</div>
+
+<!-- 状态栏 -->
+<div id="statusBar">就绪</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  GEX 计算引擎 (JavaScript 版)
+// ═══════════════════════════════════════════════════════════════
+
+const RISK_FREE_RATE = 0.05;    // 无风险利率 r
+const DIVIDEND_YIELD = 0.01;    // 股息率 q
+const CONTRACT_MULT = 100.0;    // 合约乘数
+
+/** 标准正态分布 PDF */
+function normalPDF(x) {
+  return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+}
+
+/** 标准正态分布 CDF (Abramowitz & Stegun 近似) */
+function normalCDF(x) {
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
+  const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+  const sign = x >= 0 ? 1 : -1;
+  x = Math.abs(x) / Math.sqrt(2);
+  const t = 1 / (1 + p * x);
+  const y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+  return 0.5 * (1 + sign * y);
+}
+
+/** 计算 d1 */
+function calcD1(S, K, T, r, sigma, q) {
+  if (K <= 0 || sigma <= 0 || T <= 0) return 0;
+  const sigmaSqrtT = sigma * Math.sqrt(T);
+  return (Math.log(S / K) + (r - q + 0.5 * sigma * sigma) * T) / sigmaSqrtT;
+}
+
+/** Black-Scholes Gamma: Γ = e^(-qT) * N'(d1) / (S * σ * √T) */
+function calcGamma(S, K, T, r, sigma, q) {
+  if (S <= 0 || K <= 0 || T <= 0 || sigma <= 0) return 0;
+  const d1 = calcD1(S, K, T, r, sigma, q);
+  const sigmaSqrtT = sigma * Math.sqrt(T);
+  return Math.exp(-q * T) * normalPDF(d1) / (S * sigmaSqrtT);
+}
+
+/** 计算单个 Strike 的 GEX */
+function calcSingleStrikeGEX(S, data) {
+  const avgIV = (data.callIV + data.putIV) * 0.5;
+  const gamma = calcGamma(S, data.strike, data.expiration, RISK_FREE_RATE, avgIV, DIVIDEND_YIELD);
+  const callGEX =  gamma * data.callOI * CONTRACT_MULT * S;
+  const putGEX  = -gamma * data.putOI  * CONTRACT_MULT * S;
+  return { strike: data.strike, callGEX, putGEX, netGEX: callGEX + putGEX };
+}
+
+/** 计算全部 Net GEX 并排序 */
+function calcNetGEX(chain, S) {
+  return chain.map(d => calcSingleStrikeGEX(S, d))
+    .sort((a, b) => a.strike - b.strike);
+}
+
+/** 找 Call Wall */
+function findCallWall(results) {
+  if (!results.length) return 0;
+  let maxGEX = -Infinity, wall = results[0].strike;
+  results.forEach(r => { if (r.callGEX > maxGEX) { maxGEX = r.callGEX; wall = r.strike; } });
+  return wall;
+}
+
+/** 找 Put Wall */
+function findPutWall(results) {
+  if (!results.length) return 0;
+  let minGEX = Infinity, wall = results[0].strike;
+  results.forEach(r => { if (r.putGEX < minGEX) { minGEX = r.putGEX; wall = r.strike; } });
+  return wall;
+}
+
+/** 在给定 S 下的总 Net GEX */
+function sumNetGEXAtS(chain, S) {
+  return chain.reduce((sum, d) => sum + calcSingleStrikeGEX(S, d).netGEX, 0);
+}
+
+/** 二分法找 Zero Gamma */
+function findZeroGamma(chain, S_min, S_max) {
+  if (!chain.length) return 0;
+  let lo = S_min, hi = S_max;
+  let gexLo = sumNetGEXAtS(chain, lo);
+  let gexHi = sumNetGEXAtS(chain, hi);
+  if (gexLo * gexHi > 0) return (lo + hi) / 2;
+  for (let i = 0; i < 50; i++) {
+    const mid = (lo + hi) / 2;
+    const gexMid = sumNetGEXAtS(chain, mid);
+    if (Math.abs(gexMid) < 1e-6 || (hi - lo) < 0.005) return mid;
+    if (gexLo * gexMid < 0) { hi = mid; gexHi = gexMid; }
+    else { lo = mid; gexLo = gexMid; }
+  }
+  return (lo + hi) / 2;
+}
+
+/** SPY → ES 基差映射 */
+function mapSPYtoES(spyLevel, spySpot, esPrice) {
+  const basis = esPrice - spySpot * 10;
+  return spyLevel * 10 + basis;
+}
+
+/** 一站式计算所有关键位 */
+function calcAllKeyLevels(chain, spySpot, esPrice) {
+  const gexResults = calcNetGEX(chain, spySpot);
+  const callWall = findCallWall(gexResults);
+  const putWall = findPutWall(gexResults);
+  const zeroGamma = findZeroGamma(chain, spySpot * 0.9, spySpot * 1.1);
+  const basis = esPrice - spySpot * 10;
+  return {
+    gexResults,
+    callWall_SPY: callWall, putWall_SPY: putWall, zeroGamma_SPY: zeroGamma,
+    callWall_ES: mapSPYtoES(callWall, spySpot, esPrice),
+    putWall_ES: mapSPYtoES(putWall, spySpot, esPrice),
+    zeroGamma_ES: mapSPYtoES(zeroGamma, spySpot, esPrice),
+    basis
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Mock 数据生成 (复现 OptionDataFetcher::GenerateMockChain)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * 生成模拟 SPY 期权链 (Mock Data)
+ *
+ * 设计原则:
+ *   - Call/Put OI 在平值附近大致均衡，确保 Zero Gamma 接近现价
+ *   - Call Wall 略高于现价 (OTM Call 卖盘集中区)
+ *   - Put Wall 略低于现价 (OTM Put 买盘保护区)
+ *   - 距到期约 30 天，IV 约 18%，带波动率微笑
+ */
+function generateMockChain(spot) {
+  // 固定种子伪随机
+  let seed = 42;
+  function rand() { seed = (seed * 1664525 + 1013904223) & 0xFFFFFFFF; return (seed >>> 0) / 0xFFFFFFFF; }
+  function randRange(min, max) { return min + rand() * (max - min); }
+
+  const chain = [];
+  const strikeMin = Math.floor((spot - 50) / 5) * 5;
+  const strikeMax = Math.ceil((spot + 50) / 5) * 5;
+  const timeToExpiry = 30 / 365;
+  const baseIV = 0.18;
+
+  for (let strike = strikeMin; strike <= strikeMax; strike += 5) {
+    const moneyness = (strike - spot) / spot;
+
+    // 基础 OI: 平值最高 (约 120K), 远离平值递减 (高斯分布)
+    const baseOI = 120000 * Math.exp(-0.5 * Math.pow(moneyness / 0.03, 2));
+
+    // Call OI 偏斜: Call Wall 在 spot 上方 2-3% (OTM Call 卖盘集中)
+    const callSkew = 1.0 + 0.4 * Math.exp(-0.5 * Math.pow((moneyness - 0.025) / 0.015, 2));
+    // Put OI 偏斜: Put Wall 在 spot 下方 2-3% (OTM Put 买盘保护)
+    const putSkew = 1.0 + 0.4 * Math.exp(-0.5 * Math.pow((moneyness + 0.025) / 0.015, 2));
+
+    // 波动率微笑: 远离平值 IV 更高
+    const ivSkew = 1.0 + 0.25 * moneyness * moneyness;
+
+    // Call 和 Put 使用相同的 OI 乘数范围，确保整体均衡
+    const oiMultiplier = randRange(0.82, 0.92);
+
+    chain.push({
+      strike,
+      expiration: timeToExpiry,
+      callOI: baseOI * callSkew * oiMultiplier,
+      putOI:  baseOI * putSkew  * oiMultiplier,
+      callIV: baseIV * ivSkew * randRange(0.90, 1.00),
+      putIV:  baseIV * ivSkew * randRange(0.95, 1.05)
+    });
+  }
+  return chain;
+}
+
+/** 生成模拟 ES 历史价格 (随机漫步) */
+function generateESHistory(esPrice, numPoints) {
+  let seed2 = 12345;
+  function randN() {
+    // Box-Muller 变换
+    seed2 = (seed2 * 1664525 + 1013904223) & 0xFFFFFFFF;
+    const u1 = (seed2 >>> 0) / 0xFFFFFFFF;
+    seed2 = (seed2 * 1664525 + 1013904223) & 0xFFFFFFFF;
+    const u2 = (seed2 >>> 0) / 0xFFFFFFFF;
+    return Math.sqrt(-2 * Math.log(u1 || 1e-10)) * Math.cos(2 * Math.PI * u2);
+  }
+
+  const history = [];
+  let price = esPrice - 30;
+  for (let i = 0; i < numPoints; i++) {
+    const drift = (esPrice - price) * 0.02;
+    const step = randN() * 8 + drift;
+    price += step;
+    if (price < esPrice - 80) price += 5;
+    if (price > esPrice + 80) price -= 5;
+    history.push(price);
+  }
+  history[history.length - 1] = esPrice + randN() * 4;
+  return history;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  图表绘制 (Canvas, 复现 wxAutoBufferedPaintDC 逻辑)
+// ═══════════════════════════════════════════════════════════════
+
+/** 绘制 GEX 柱状图 */
+function drawGEXChart(canvas, gexData, spot, keyLevels) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  if (!gexData.length) {
+    ctx.fillStyle = '#000'; ctx.font = '11px "Tahoma"';
+    ctx.fillText('等待数据加载...', W / 2 - 60, H / 2);
+    return;
+  }
+
+  const ML = 55, MR = 15, MT = 22, MB = 50;
+  const chartW = W - ML - MR, chartH = H - MT - MB;
+  if (chartW <= 0 || chartH <= 0) return;
+
+  const minStrike = gexData[0].strike, maxStrike = gexData[gexData.length - 1].strike;
+  let maxAbs = 0;
+  gexData.forEach(r => { maxAbs = Math.max(maxAbs, Math.abs(r.netGEX)); });
+  if (maxAbs <= 0) maxAbs = 1e6;
+
+  const strikeToX = (s) => ML + (s - minStrike) / (maxStrike - minStrike) * chartW;
+  const gexToY = (g) => {
+    const zeroY = MT + chartH / 2;
+    return zeroY - (g / maxAbs) * (chartH / 2);
+  };
+  const zeroY = MT + chartH / 2;
+
+  // 背景
+  ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, H);
+
+  // Y=0 线
+  ctx.strokeStyle = '#808080'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(ML, zeroY); ctx.lineTo(ML + chartW, zeroY); ctx.stroke();
+
+  // 网格线
+  ctx.strokeStyle = '#D0D0D0'; ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 5; i++) {
+    const ratio = i / 5;
+    let yp = MT + ratio * chartH;
+    ctx.beginPath(); ctx.moveTo(ML, yp); ctx.lineTo(ML + chartW, yp); ctx.stroke();
+  }
+
+  // Y 轴刻度
+  ctx.fillStyle = '#000'; ctx.font = '9px "Tahoma"';
+  for (let i = 0; i <= 5; i++) {
+    const gexVal = maxAbs * (i / 5);
+    const yp = gexToY(gexVal);
+    const label = (gexVal / 1e6).toFixed(1) + 'M';
+    ctx.fillText(label, ML - ctx.measureText(label).width - 4, yp + 3);
+    if (i > 0) {
+      const yn = gexToY(-gexVal);
+      const nlabel = (-gexVal / 1e6).toFixed(1) + 'M';
+      ctx.fillText(nlabel, ML - ctx.measureText(nlabel).width - 4, yn + 3);
+    }
+  }
+
+  // X 轴刻度
+  const numBars = gexData.length;
+  const barWidth = Math.max(2, (chartW / numBars) * 0.7);
+  const step = Math.max(1, Math.floor(numBars / 8));
+  for (let i = 0; i < gexData.length; i += step) {
+    const xp = strikeToX(gexData[i].strike);
+    const label = gexData[i].strike.toFixed(0);
+    ctx.fillStyle = '#000';
+    ctx.fillText(label, xp - ctx.measureText(label).width / 2, MT + chartH + 14);
+  }
+
+  // 柱状图
+  gexData.forEach(r => {
+    const xc = strikeToX(r.strike);
+    const x = xc - barWidth / 2;
+    if (r.netGEX >= 0) {
+      const top = gexToY(r.netGEX);
+      ctx.fillStyle = '#008000';
+      ctx.fillRect(x, top, barWidth, zeroY - top);
+      ctx.strokeStyle = '#006000'; ctx.lineWidth = 0.5;
+      ctx.strokeRect(x, top, barWidth, zeroY - top);
+    } else {
+      const bottom = gexToY(r.netGEX);
+      ctx.fillStyle = '#CC0000';
+      ctx.fillRect(x, zeroY, barWidth, bottom - zeroY);
+      ctx.strokeStyle = '#A00000'; ctx.lineWidth = 0.5;
+      ctx.strokeRect(x, zeroY, barWidth, bottom - zeroY);
+    }
+  });
+
+  // Spot 标记
+  const spotX = strikeToX(spot);
+  ctx.setLineDash([4, 4]);
+  ctx.strokeStyle = '#000080'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(spotX, MT); ctx.lineTo(spotX, MT + chartH); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#000080'; ctx.font = 'bold 9px "Tahoma"';
+  ctx.fillText('Spot: ' + spot.toFixed(2), spotX + 4, MT + 12);
+
+  // 关键位标注
+  const bottomY = MT + chartH;
+  function drawVLine(val, color, label, yOff) {
+    const x = strikeToX(val);
+    ctx.setLineDash([3, 5]);
+    ctx.strokeStyle = color; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, MT); ctx.lineTo(x, bottomY); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = color; ctx.font = 'bold 8px "Microsoft YaHei"';
+    ctx.fillText(label, x + 4, bottomY - yOff);
+  }
+  if (keyLevels.callWall_SPY > 0)
+    drawVLine(keyLevels.callWall_SPY, '#008000', 'Call Wall ' + keyLevels.callWall_SPY.toFixed(0), 35);
+  if (keyLevels.putWall_SPY > 0)
+    drawVLine(keyLevels.putWall_SPY, '#CC0000', 'Put Wall ' + keyLevels.putWall_SPY.toFixed(0), 20);
+  if (keyLevels.zeroGamma_SPY > 0)
+    drawVLine(keyLevels.zeroGamma_SPY, '#808080', 'Zero Gamma ' + keyLevels.zeroGamma_SPY.toFixed(2), 50);
+
+  // 轴标题
+  ctx.fillStyle = '#000'; ctx.font = '9px "Tahoma"';
+  ctx.fillText('GEX ($)', 3, MT - 6);
+  ctx.fillText('Strike', ML + chartW - 30, bottomY + 26);
+}
+
+/** 绘制 ES 折线图 + 支撑阻力 Overlay */
+function drawESChart(canvas, esPrice, keyLevels, priceHistory) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  if (!priceHistory.length) {
+    ctx.fillStyle = '#000'; ctx.font = '11px "Tahoma"';
+    ctx.fillText('等待数据加载...', W / 2 - 60, H / 2);
+    return;
+  }
+
+  const ML = 75, MR = 120, MT = 22, MB = 40;
+  const chartW = W - ML - MR, chartH = H - MT - MB;
+  if (chartW <= 0 || chartH <= 0) return;
+
+  // 计算 Y 范围
+  let minPrice = esPrice - 50, maxPrice = esPrice + 50;
+  [keyLevels.callWall_ES, keyLevels.putWall_ES, keyLevels.zeroGamma_ES].forEach(v => {
+    if (v > 0) { minPrice = Math.min(minPrice, v - 10); maxPrice = Math.max(maxPrice, v + 10); }
+  });
+  priceHistory.forEach(p => { minPrice = Math.min(minPrice, p - 5); maxPrice = Math.max(maxPrice, p + 5); });
+
+  const priceToY = (p) => MT + chartH - (p - minPrice) / (maxPrice - minPrice) * chartH;
+  const indexToX = (i) => ML + i / (priceHistory.length - 1) * chartW;
+
+  // 背景
+  ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, H);
+
+  // 网格线
+  ctx.strokeStyle = '#D0D0D0'; ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 6; i++) {
+    const ratio = i / 6;
+    const yp = MT + ratio * chartH;
+    ctx.beginPath(); ctx.moveTo(ML, yp); ctx.lineTo(ML + chartW, yp); ctx.stroke();
+    const price = minPrice + ratio * (maxPrice - minPrice);
+    ctx.fillStyle = '#000'; ctx.font = '9px "Tahoma"';
+    ctx.fillText(price.toFixed(0), ML - ctx.measureText(price.toFixed(0)).width - 4, yp + 3);
+  }
+
+  // 边框
+  ctx.strokeStyle = '#808080'; ctx.lineWidth = 1;
+  ctx.strokeRect(ML, MT, chartW, chartH);
+
+  // 面积填充
+  const bottomY = priceToY(minPrice);
+  ctx.beginPath();
+  ctx.moveTo(ML, bottomY);
+  priceHistory.forEach((p, i) => ctx.lineTo(indexToX(i), priceToY(p)));
+  ctx.lineTo(indexToX(priceHistory.length - 1), bottomY);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(0, 0, 255, 0.06)'; ctx.fill();
+
+  // 折线
+  ctx.strokeStyle = '#0000FF'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  priceHistory.forEach((p, i) => {
+    const x = indexToX(i), y = priceToY(p);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // 当前价格圆点
+  const lx = indexToX(priceHistory.length - 1);
+  const ly = priceToY(priceHistory[priceHistory.length - 1]);
+  ctx.fillStyle = '#0000FF'; ctx.beginPath();
+  ctx.arc(lx, ly, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#0000C0'; ctx.lineWidth = 1; ctx.stroke();
+
+  // 当前价格标签
+  ctx.fillStyle = '#000080'; ctx.font = 'bold 10px "Tahoma"';
+  ctx.fillText(esPrice.toFixed(2), lx + 8, ly - 10);
+
+  // ── Overlay 支撑阻力线 ──────────────────────────
+  function drawHLine(price, color, label, subLabel) {
+    if (price <= 0 || price < minPrice || price > maxPrice) return;
+    const y = priceToY(price);
+    ctx.setLineDash([8, 4]);
+    ctx.strokeStyle = color; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(ML + chartW, y); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 右侧标签
+    ctx.fillStyle = color; ctx.font = 'bold 9px "Microsoft YaHei"';
+    ctx.fillText(label + ' ' + price.toFixed(0) + ' (ES)', ML + chartW + 5, y - 6);
+
+    // 左侧标签
+    ctx.font = 'bold 8px "Microsoft YaHei"';
+    ctx.fillText(subLabel, ML + 4, y - 12);
+  }
+
+  drawHLine(keyLevels.putWall_ES, '#CC0000', 'Put Wall', '强支撑');
+  drawHLine(keyLevels.callWall_ES, '#008000', 'Call Wall', '强阻力');
+  drawHLine(keyLevels.zeroGamma_ES, '#808080', 'Zero Gamma', '多空分界');
+
+  // X 轴时间标签
+  const bx = MT + chartH;
+  ctx.fillStyle = '#000'; ctx.font = '9px "Tahoma"';
+  ctx.fillText('09:30', ML, bx + 14);
+  ctx.fillText('12:00', ML + chartW / 2 - 20, bx + 14);
+  ctx.fillText('16:00', ML + chartW - 40, bx + 14);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  应用状态 & 数据流
+// ═══════════════════════════════════════════════════════════════
+
+let currentData = null;
+let autoRefreshTimer = null;
+let autoRefreshOn = false;
+let dataSource = 'mock';  // 'live' | 'mock'
+
+function resizeCanvas(canvas) {
+  canvas.width = canvas.clientWidth;
+  canvas.height = canvas.clientHeight;
+}
+
+/** 通过本地代理从 Yahoo Finance 获取真实 SPY/ES 现价 */
+async function fetchRealSpotPrices() {
+  try {
+    const resp = await fetch('/api/spot');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    if (data.spySpot && data.spySpot > 0) {
+      return { spySpot: data.spySpot, esPrice: data.esPrice || data.spySpot * 10 + 15 };
+    }
+    throw new Error('Invalid data');
+  } catch (e) {
+    console.warn('[数据] Yahoo Finance 获取失败, 回退 Mock:', e.message);
+    return null;
+  }
+}
+
+async function refreshData() {
+  const statusBar = document.getElementById('statusBar');
+  statusBar.textContent = '正在获取实时数据...';
+
+  // ── Step 1: 尝试从 Yahoo Finance 获取真实价格 ─────────
+  const real = await fetchRealSpotPrices();
+
+  let spySpot, esPrice, isLive;
+  if (real) {
+    spySpot = real.spySpot;
+    esPrice = real.esPrice;
+    isLive = true;
+    dataSource = 'live';
+  } else {
+    // 网络失败 → 回退 Mock 数据
+    spySpot = 575.0 + (Math.random() - 0.5) * 6;
+    esPrice = spySpot * 10 + 15 + (Math.random() - 0.5) * 10;
+    isLive = false;
+    dataSource = 'mock';
+  }
+
+  // ── Step 2: 基于真实 Spot 生成期权链并计算 ────────────
+  const chain = generateMockChain(spySpot);
+  const keyLevels = calcAllKeyLevels(chain, spySpot, esPrice);
+  const priceHistory = generateESHistory(esPrice, 50);
+
+  currentData = { spySpot, esPrice, chain, keyLevels, priceHistory };
+
+  // ── Step 3: 更新控制栏 ─────────────────────────────────
+  document.getElementById('vSpySpot').textContent = spySpot.toFixed(2);
+  document.getElementById('vEsPrice').textContent = esPrice.toFixed(2);
+  document.getElementById('vBasis').textContent = (esPrice - spySpot * 10).toFixed(2);
+  document.getElementById('vCallWall').textContent = keyLevels.callWall_ES.toFixed(0);
+  document.getElementById('vPutWall').textContent = keyLevels.putWall_ES.toFixed(0);
+  document.getElementById('vZeroGamma').textContent = keyLevels.zeroGamma_ES.toFixed(0);
+
+  // 数据源指示灯
+  const badge = document.getElementById('dataSourceBadge');
+  if (isLive) {
+    badge.textContent = 'LIVE';
+    badge.style.cssText = 'color:#FFF;font-weight:700;font-size:10px;' +
+      'background:#408040;padding:1px 5px;border:1px solid #206020;font-family:Tahoma,sans-serif;';
+  } else {
+    badge.textContent = 'MOCK';
+    badge.style.cssText = 'color:#FFF;font-weight:700;font-size:10px;' +
+      'background:#808080;padding:1px 5px;border:1px solid #606060;font-family:Tahoma,sans-serif;';
+  }
+
+  // ── Step 4: 重绘图表 ───────────────────────────────────
+  const gexCanvas = document.getElementById('gexCanvas');
+  const esCanvas = document.getElementById('esCanvas');
+  resizeCanvas(gexCanvas);
+  resizeCanvas(esCanvas);
+  drawGEXChart(gexCanvas, keyLevels.gexResults, spySpot, keyLevels);
+  drawESChart(esCanvas, esPrice, keyLevels, priceHistory);
+
+  const timeStr = new Date().toLocaleTimeString('zh-CN');
+  statusBar.textContent = (isLive ? 'Yahoo Finance 实时 ' : 'Mock 模拟 ') + '| 更新: ' + timeStr;
+}
+
+function toggleAutoRefresh() {
+  const btn = document.getElementById('btnAutoRefresh');
+  if (autoRefreshOn) {
+    clearInterval(autoRefreshTimer);
+    autoRefreshOn = false;
+    btn.textContent = '自动刷新';
+    btn.classList.remove('active');
+    document.getElementById('statusBar').textContent = '自动刷新已停止';
+  } else {
+    autoRefreshTimer = setInterval(refreshData, 10000); // 10 秒间隔
+    autoRefreshOn = true;
+    btn.textContent = '停止刷新';
+    btn.classList.add('active');
+    document.getElementById('statusBar').textContent = '自动刷新已开启 (10s)';
+  }
+}
+
+// ── 初始化 ──────────────────────────────────────────
+window.addEventListener('load', () => {
+  setTimeout(refreshData, 100);
+});
+
+window.addEventListener('resize', () => {
+  if (currentData) {
+    const gexCanvas = document.getElementById('gexCanvas');
+    const esCanvas = document.getElementById('esCanvas');
+    resizeCanvas(gexCanvas);
+    resizeCanvas(esCanvas);
+    drawGEXChart(gexCanvas, currentData.keyLevels.gexResults, currentData.spySpot, currentData.keyLevels);
+    drawESChart(esCanvas, currentData.esPrice, currentData.keyLevels, currentData.priceHistory);
+  }
+});
+</script>
+</body>
+</html>
